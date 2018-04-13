@@ -20,31 +20,23 @@ import io.github.nucleuspowered.nucleus.internal.permissions.SuggestedLevel;
 import io.github.nucleuspowered.nucleus.modules.inventory.InventoryModule;
 import io.github.nucleuspowered.nucleus.modules.inventory.config.InventoryConfig;
 import io.github.nucleuspowered.nucleus.modules.inventory.config.InventoryConfigAdapter;
+import io.github.nucleuspowered.nucleus.modules.inventory.handler.InvSeeHandler;
 import io.github.nucleuspowered.nucleus.modules.inventory.listeners.InvSeeListener;
 import org.spongepowered.api.command.CommandResult;
 import org.spongepowered.api.command.args.CommandContext;
 import org.spongepowered.api.command.args.CommandElement;
 import org.spongepowered.api.entity.living.player.Player;
 import org.spongepowered.api.entity.living.player.User;
-import org.spongepowered.api.item.ItemTypes;
+import org.spongepowered.api.event.item.inventory.InteractInventoryEvent;
 import org.spongepowered.api.item.inventory.Container;
 import org.spongepowered.api.item.inventory.Inventory;
-import org.spongepowered.api.item.inventory.InventoryArchetype;
 import org.spongepowered.api.item.inventory.InventoryArchetypes;
-import org.spongepowered.api.item.inventory.ItemStack;
-import org.spongepowered.api.item.inventory.Slot;
-import org.spongepowered.api.item.inventory.entity.Hotbar;
-import org.spongepowered.api.item.inventory.entity.MainPlayerInventory;
-import org.spongepowered.api.item.inventory.entity.PlayerInventory;
 import org.spongepowered.api.item.inventory.entity.UserInventory;
-import org.spongepowered.api.item.inventory.equipment.EquipmentType;
 import org.spongepowered.api.item.inventory.equipment.EquipmentTypes;
 import org.spongepowered.api.item.inventory.property.InventoryDimension;
 import org.spongepowered.api.item.inventory.property.InventoryTitle;
 import org.spongepowered.api.item.inventory.property.SlotIndex;
-import org.spongepowered.api.item.inventory.property.SlotPos;
 import org.spongepowered.api.item.inventory.query.QueryOperationTypes;
-import org.spongepowered.api.item.inventory.type.GridInventory;
 import org.spongepowered.api.text.Text;
 import org.spongepowered.api.util.annotation.NonnullByDefault;
 
@@ -74,9 +66,7 @@ public class InvSeeCommand extends AbstractCommand<Player> implements Reloadable
 
     @Override
     public CommandElement[] getArguments() {
-        return new CommandElement[]{
-                SelectorWrapperArgument.nicknameSelector(Text.of(player), NicknameArgument.UnderlyingType.USER)
-        };
+        return new CommandElement[]{SelectorWrapperArgument.nicknameSelector(Text.of(player), NicknameArgument.UnderlyingType.USER)};
     }
 
     @Override
@@ -97,16 +87,11 @@ public class InvSeeCommand extends AbstractCommand<Player> implements Reloadable
 
         // Just in case, get the subject inventory if they are online.
         try {
-            Optional<Container> oc = src.openInventory(getInvSeeInventory(target));
-            if (oc.isPresent()) {
-                if (!permissions.testSuffix(src, "modify") || permissions.testSuffix(target, "exempt.interact")) {
-                    InvSeeListener.addEntry(src.getUniqueId(), oc.get());
-                }
+            src.openInventory(getInvSeeInventory(
+                    target, permissions.testSuffix(src, "modify") //&& !permissions.testSuffix(target, "exempt.interact")
+            )).orElseThrow(() -> ReturnMessageException.fromKey("command.invsee.failed"));
 
-                return CommandResult.success();
-            }
-
-            throw ReturnMessageException.fromKey("command.invsee.failed");
+            return CommandResult.success();
         } catch (UnsupportedOperationException e) {
             throw ReturnMessageException.fromKey("command.invsee.offlinenotsupported");
         }
@@ -117,13 +102,14 @@ public class InvSeeCommand extends AbstractCommand<Player> implements Reloadable
                 InventoryConfig::isAllowInvseeOnSelf).orElse(false);
     }
 
-    private Inventory getInvSeeInventory(User user) {
+    private Inventory getInvSeeInventory(User user, boolean modifiable) {
         final Inventory inventory = Inventory.builder()
                 .of(InventoryArchetypes.DOUBLE_CHEST)
                 .property(InventoryTitle.PROPERTY_NAME, InventoryTitle.of(Text.of(user.getName())))
                 .property(InventoryDimension.PROPERTY_NAME, InventoryDimension.of(9, 5))
+                .listener(InteractInventoryEvent.class, new InvSeeHandler(user, modifiable))
                 .build(Nucleus.getNucleus().getPluginContainer());
-        final UserInventory<User> userInventory = user.getPlayer().isPresent()?
+        final UserInventory<User> userInventory = user.getPlayer().isPresent() ?
                 user.getPlayer().get().getInventory().query(QueryOperationTypes.INVENTORY_TYPE.of(UserInventory.class)) :
                 user.getInventory().query(QueryOperationTypes.INVENTORY_TYPE.of(UserInventory.class));
 
